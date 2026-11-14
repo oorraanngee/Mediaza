@@ -404,11 +404,6 @@ async function prepareVideoCovers(file, customImg) {
   }
 }
 
-function getOpusAudioArgs(audioBitrate) {
-  const channels = audioBitrate <= 32000 ? "1" : "2";
-  return ["-af", "volume=0.92", "-c:a", "libopus", "-b:a", String(audioBitrate), "-ac", channels, "-vbr", "on"];
-}
-
 function getAacAudioArgs(audioBitrate) {
   const channels = audioBitrate <= 32000 ? "1" : "2";
   return ["-af", "volume=0.92", "-c:a", "aac", "-ar", "44100", "-b:a", String(audioBitrate), "-ac", channels];
@@ -599,15 +594,24 @@ async function processAudio(file, audioMode, customImg, onProgress) {
 
   const audioBitrate = Number(audioMode);
   if (encoderSelect.value === "ffmpeg") {
-    const inputExt = guessExt(file, "mp3");
-    const inputName = `in_aud.${inputExt}`;
-    const outputName = `out_aud.webm`;
-    const inputBuffer = await file.arrayBuffer();
-    const args = ["-i", inputName, "-threads", "1", "-vn", ...getOpusAudioArgs(audioBitrate), outputName];
-    const outBuffer = await runFFmpegJob({ inputName, outputName, inputBuffer, args, onProgress });
-    const mediaBlob = new Blob([outBuffer], { type: "audio/webm" });
-    addLog("INFO", `FFmpeg сжал аудио: ${formatBytes(file.size)} -> ${formatBytes(mediaBlob.size)}`);
-    return { mediaBlob, coverCanvas, cleanCoverBlob, width, height, duration: 0 };
+    try {
+      const inputExt = guessExt(file, "mp3");
+      const inputName = `in_aud.${inputExt}`;
+      const outputName = `out_aud.m4a`;
+      const inputBuffer = await file.arrayBuffer();
+      const args = ["-i", inputName, "-threads", "1", "-vn", ...getAacAudioArgs(audioBitrate), "-movflags", "+faststart", outputName];
+      const outBuffer = await runFFmpegJob({ inputName, outputName, inputBuffer, args, onProgress });
+      const mediaBlob = new Blob([outBuffer], { type: "audio/mp4" });
+      addLog("INFO", `FFmpeg (AAC M4A) сжал аудио: ${formatBytes(file.size)} -> ${formatBytes(mediaBlob.size)}`);
+      return { mediaBlob, coverCanvas, cleanCoverBlob, width, height, duration: 0 };
+    } catch (ffErr) {
+      if (ffErr.message === "Отменено пользователем") throw ffErr;
+      addLog(
+        "WARN",
+        `Кодировщик FFmpeg для аудио завершился с ошибкой (${ffErr.message}). Выполнен откат на браузерный MediaRecorder (1x) — процесс займёт время длительности трека.`
+      );
+      statusText.textContent = "Откат на MediaRecorder (1x): 0%...";
+    }
   }
 
   const srcUrl = URL.createObjectURL(file);
