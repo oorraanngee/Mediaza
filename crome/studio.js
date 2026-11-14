@@ -113,7 +113,7 @@ function downloadFullLogTxt() {
     "Если возникла проблема, откройте Issue: https://github.com/oorraanngee/Mediaza/issues",
     "Опишите контекст (какой файл конвертировали, настройки, что произошло) и прикрепите этот файл.",
     "--------------------------------------------",
-    `Версия расширения: ${chrome.runtime?.getManifest?.().version || "2.2.0"}`,
+    `Версия расширения: ${chrome.runtime?.getManifest?.().version || "2.2.1"}`,
     `Браузер: ${navigator.userAgent}`,
     `Дата выгрузки: ${new Date().toISOString()}`,
     `Предупреждений в последнем прогоне: ${runWarns.length}, Критических ошибок: ${runErrors.length}`,
@@ -411,13 +411,9 @@ async function prepareVideoCovers(file, customImg) {
   }
 }
 
-function getOpusAudioArgs(audioBitrate) {
-  const channels = audioBitrate <= 32000 ? "1" : "2";
-  return ["-af", "volume=0.92", "-c:a", "libopus", "-b:a", String(audioBitrate), "-ac", channels, "-vbr", "on"];
-}
-
 function getAacAudioArgs(audioBitrate) {
   const channels = audioBitrate <= 32000 ? "1" : "2";
+  // Небольшой запас громкости (0.92) убирает клиппинг на дропах; 44100 Hz AAC не падает в ffmpeg.wasm
   return ["-af", "volume=0.92", "-c:a", "aac", "-ar", "44100", "-b:a", String(audioBitrate), "-ac", channels];
 }
 
@@ -428,7 +424,6 @@ async function transcodeVideoViaFFmpeg(file, fps, videoBitrate, audioBitrate, cu
   const outputName = `out_qvga.mp4`;
   const inputBuffer = await file.arrayBuffer();
 
-  // Используем стабильный в ffmpeg.wasm libx264 + aac в MP4 (libvpx в однопоточном WASM 0.12.10 падает с OOB)
   const args = [
     "-i", inputName,
     "-threads", "1",
@@ -607,15 +602,24 @@ async function processAudio(file, audioMode, customImg, onProgress) {
 
   const audioBitrate = Number(audioMode);
   if (encoderSelect.value === "ffmpeg") {
-    const inputExt = guessExt(file, "mp3");
-    const inputName = `in_aud.${inputExt}`;
-    const outputName = `out_aud.webm`;
-    const inputBuffer = await file.arrayBuffer();
-    const args = ["-i", inputName, "-threads", "1", "-vn", ...getOpusAudioArgs(audioBitrate), outputName];
-    const outBuffer = await runFFmpegJob({ inputName, outputName, inputBuffer, args, onProgress });
-    const mediaBlob = new Blob([outBuffer], { type: "audio/webm" });
-    addLog("INFO", `FFmpeg сжал аудио: ${formatBytes(file.size)} -> ${formatBytes(mediaBlob.size)}`);
-    return { mediaBlob, coverCanvas, cleanCoverBlob, width, height, duration: 0 };
+    try {
+      const inputExt = guessExt(file, "mp3");
+      const inputName = `in_aud.${inputExt}`;
+      const outputName = `out_aud.m4a`;
+      const inputBuffer = await file.arrayBuffer();
+      const args = ["-i", inputName, "-threads", "1", "-vn", ...getAacAudioArgs(audioBitrate), "-movflags", "+faststart", outputName];
+      const outBuffer = await runFFmpegJob({ inputName, outputName, inputBuffer, args, onProgress });
+      const mediaBlob = new Blob([outBuffer], { type: "audio/mp4" });
+      addLog("INFO", `FFmpeg (AAC M4A) сжал аудио: ${formatBytes(file.size)} -> ${formatBytes(mediaBlob.size)}`);
+      return { mediaBlob, coverCanvas, cleanCoverBlob, width, height, duration: 0 };
+    } catch (ffErr) {
+      if (ffErr.message === "Отменено пользователем") throw ffErr;
+      addLog(
+        "WARN",
+        `Кодировщик FFmpeg для аудио завершился с ошибкой (${ffErr.message}). Выполнен откат на браузерный MediaRecorder (1x) — качество и скорость сжатия могут измениться.`
+      );
+      statusText.textContent = "Откат на MediaRecorder (1x): 0%...";
+    }
   }
 
   const srcUrl = URL.createObjectURL(file);
