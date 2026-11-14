@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <title>Добро пожаловать в Медиаза</title>
+  <style>
+    body {
+      font-family: Tahoma, Segoe UI, sans-serif;
+      background: #ece9d8;
+      color: #111;
+      max-width: 700px;
+      margin: 30px auto;
+      padding: 0 16px;
+    }
+    .window {
+      background: #fff;
+      border: 2px solid #0054e3;
+      border-radius: 6px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+      overflow: hidden;
+    }
+    .titlebar {
+      background: linear-gradient(180deg, #0997ff 0%, #0053ee 8%, #0050ee 40%, #06f 100%);
+      color: #fff;
+      font-weight: bold;
+      padding: 9px 14px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .titlebar img { width: 18px; height: 18px; }
+    .content { padding: 18px; font-size: 13px; line-height: 1.5; }
+    h2 { margin: 0 0 10px; font-size: 17px; color: #003c74; }
+    ul { margin: 8px 0 16px; padding-left: 20px; }
+    li { margin-bottom: 6px; }
+    .dl-box {
+      background: #f4f7fc;
+      border: 1px solid #7f9db9;
+      border-radius: 4px;
+      padding: 12px;
+      margin: 16px 0;
+    }
+    .bar-bg {
+      width: 100%;
+      height: 18px;
+      background: #dfe5ef;
+      border: 1px solid #7f9db9;
+      border-radius: 3px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+    .bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(180deg, #5cb85c 0%, #2e9c2e 100%);
+      transition: width 0.15s;
+    }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    button {
+      padding: 8px 16px;
+      cursor: pointer;
+      background: #f0f0f0;
+      border: 1px solid #003c74;
+      border-radius: 3px;
+      font-size: 13px;
+    }
+    button.primary { background: #0054e3; color: #fff; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="window">
+    <div class="titlebar">
+      <img src="favicon.png" alt="">
+      <span>Добро пожаловать в Медиаза v2.2.0</span>
+    </div>
+    <div class="content">
+      <h2>Что умеет расширение «Медиаза»?</h2>
+      <p>
+        Это расширение позволяет загружать и смотреть <b>видео со звуком</b> и слушать <b>музыку</b> прямо в постах
+        на <b>Стрекозе</b> — маскируя медиафайлы внутри обычных GIF-картинок.
+      </p>
+      <ul>
+        <li><b>Плеер в стиле XP / Стрекоза FM:</b> видеоплеер с чистой обложкой и аудиоплеер с 4 живыми визуализаторами и режимами тона (включая Тартини).</li>
+        <li><b>Межстраничный мини-плеер:</b> если при прокрутке или переходе на другую страницу трек/видео играет, плеер сворачивается в левый нижний угол и возвращается сам при возврате к посту.</li>
+        <li><b>Скачивание в любых форматах:</b> сохранение извлечённых видео и музыки в <code>.mp4</code>, <code>.3gp</code>, <code>.avi</code>, <code>.mkv</code>, <code>.mp3</code>, <code>.wav</code>, <code>.ogg</code> и др.</li>
+        <li><b>Студия конвертации:</b> упаковка ваших роликов и треков со своей обложкой и хранением в локальной базе браузера.</li>
+	<p><i style="color: gray;">P.S. Эта версия расширения (для firefox) сделана по просьбе Kill21309.</i></p>
+      </ul>
+
+      <div class="dl-box">
+        <div><b>Дополнительный компонент (FFmpeg WebAssembly, ~31 МБ):</b></div>
+        <div id="dlText" style="margin-top:4px; color:#333;">Подготовка к загрузке в IndexedDB...</div>
+        <div class="bar-bg"><div class="bar-fill" id="dlBar"></div></div>
+        <div style="font-size:11px; color:#666;">
+          Пока вы читаете это, движок конвертации сохраняется локально в ваш браузер. Если закрыть вкладку раньше — загрузка продолжится автоматически при открытии студии или скачивании файла.
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="openStudioBtn" class="primary">Открыть студию</button>
+        <button id="retryBtn" style="display:none;">Повторить загрузку</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="db.js"></script>
+  <script src="ffmpeg_loader.js"></script>
+  <script src="welcome.js"></script>
+</body>
+</html>

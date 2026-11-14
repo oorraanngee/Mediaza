@@ -1,0 +1,59 @@
+{
+  "manifest_version": 3,
+  "name": "Медиаза",
+  "version": "2.2.0",
+  "description": "Видео и аудио внутри GIF на Стрекозе: XP-плеер, визуализаторы, плавающий мини-плеер и конвертация форматов.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "mediaza@oorraanngee.github.io",
+      "strict_min_version": "140.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
+    }
+  },
+  "icons": {
+    "256": "favicon.png"
+  },
+  "permissions": [
+    "storage",
+    "downloads"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; object-src 'self';"
+  },
+  "background": {
+    "scripts": [
+      "db.js",
+      "ffmpeg_loader.js",
+      "gif.js",
+      "codec.js",
+      "background.js"
+    ]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Медиаза",
+    "default_icon": {
+      "256": "favicon.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://dragonfly-flash.ru/*",
+        "https://*.dragonfly-flash.ru/*",
+        "https://dragonfly-flash.com/*",
+        "https://*.dragonfly-flash.com/*"
+      ],
+      "js": ["gif.js", "codec.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
