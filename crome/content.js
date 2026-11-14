@@ -7,6 +7,12 @@
   const activeVisualizers = new Set();
   let openMenuEl = null;
 
+  let activeFloatingCtrl = null;
+  const playerControllersByUid = new Map();
+  let isUnloading = false;
+
+  const STORAGE_PLAYBACK_KEY = "activePlayback";
+
   const VISUALIZERS = [
     { id: "bars", label: "Столбики" },
     { id: "wave", label: "Волна (Осциллограф)" },
@@ -21,11 +27,63 @@
     { id: "low", label: "Низкий тон" }
   ];
 
+  function getVideoDownloadFormats() {
+    return [
+      { id: "original", label: "Оригинал (.webm)", ext: "webm" },
+      { id: "mp4", label: "MP4 (.mp4) — H.264 / AAC", ext: "mp4", outMime: "video/mp4", args: (i, o) => ["-i", i, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-c:a", "aac", "-b:a", "96k", o] },
+      { id: "3gp", label: "3GP (.3gp) — кнопочные телефоны", ext: "3gp", outMime: "video/3gpp", args: (i, o) => ["-i", i, "-c:v", "mpeg4", "-q:v", "6", "-r", "15", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-c:a", "aac", "-ar", "22050", "-ac", "1", "-b:a", "32k", o] },
+      { id: "avi", label: "AVI (.avi) — Xvid / MP3", ext: "avi", outMime: "video/x-msvideo", args: (i, o) => ["-i", i, "-c:v", "mpeg4", "-q:v", "5", "-vtag", "XVID", "-c:a", "libmp3lame", "-b:a", "128k", o] },
+      { id: "mkv", label: "MKV (.mkv) — без перекодирования", ext: "mkv", outMime: "video/x-matroska", args: (i, o) => ["-i", i, "-c", "copy", o] },
+      { id: "mov", label: "MOV (.mov) — QuickTime", ext: "mov", outMime: "video/quicktime", args: (i, o) => ["-i", i, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", o] },
+      { id: "mp3", label: "Только звук: MP3 (.mp3)", ext: "mp3", outMime: "audio/mpeg", args: (i, o) => ["-i", i, "-vn", "-c:a", "libmp3lame", "-b:a", "160k", o] },
+      { id: "wav", label: "Только звук: WAV (.wav)", ext: "wav", outMime: "audio/wav", args: (i, o) => ["-i", i, "-vn", "-c:a", "pcm_s16le", o] }
+    ];
+  }
+
+  function getAudioDownloadFormats(origMime) {
+    const extMap = { "audio/mpeg": "mp3", "audio/ogg": "ogg", "audio/opus": "opus", "audio/wav": "wav", "audio/mp4": "m4a", "audio/aac": "aac", "audio/flac": "flac" };
+    const origExt = extMap[(origMime || "").split(";")[0]] || "webm";
+    return [
+      { id: "original", label: `Оригинал (.${origExt})`, ext: origExt },
+      { id: "mp3", label: "MP3 (.mp3)", ext: "mp3", outMime: "audio/mpeg", args: (i, o) => ["-i", i, "-vn", "-c:a", "libmp3lame", "-b:a", "160k", o] },
+      { id: "wav", label: "WAV (.wav)", ext: "wav", outMime: "audio/wav", args: (i, o) => ["-i", i, "-vn", "-c:a", "pcm_s16le", o] },
+      { id: "ogg", label: "OGG (.ogg)", ext: "ogg", outMime: "audio/ogg", args: (i, o) => ["-i", i, "-vn", "-c:a", "libvorbis", "-q:a", "4", o] },
+      { id: "m4a", label: "M4A / AAC (.m4a)", ext: "m4a", outMime: "audio/mp4", args: (i, o) => ["-i", i, "-vn", "-c:a", "aac", "-b:a", "128k", o] },
+      { id: "flac", label: "FLAC (.flac)", ext: "flac", outMime: "audio/flac", args: (i, o) => ["-i", i, "-vn", "-c:a", "flac", o] }
+    ];
+  }
+
   function injectStyles() {
     if (document.getElementById("df-xp-player-styles")) return;
     const style = document.createElement("style");
     style.id = "df-xp-player-styles";
     style.textContent = `
+      .df-xp-slot {
+        display: block;
+        width: 100%;
+        max-width: 460px;
+        margin: auto;
+        box-sizing: border-box;
+      }
+      .post-photos-grid .df-xp-slot {
+        width: 100%;
+        max-width: 420px;
+        margin: 0;
+        align-self: start !important;
+      }
+      .df-xp-slot-placeholder {
+        border: 1px dashed #7f9db9;
+        background: rgba(236, 233, 216, 0.55);
+        color: #24406e;
+        font-family: Tahoma, sans-serif;
+        font-size: 11px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        box-sizing: border-box;
+        width: 100%;
+      }
       .df-xp-player {
         width: 380px;
         max-width: 100%;
@@ -61,6 +119,29 @@
         align-self: start !important;
         margin: 0 !important;
       }
+      .df-xp-player.df-xp-floating {
+        position: fixed !important;
+        left: 14px !important;
+        bottom: 14px !important;
+        top: auto !important;
+        right: auto !important;
+        transform: none !important;
+        width: 320px !important;
+        max-width: calc(100vw - 28px) !important;
+        z-index: 2147483640 !important;
+        margin: 0 !important;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5) !important;
+      }
+      .df-xp-player.df-xp-floating .df-xp-screen video.df-media-player {
+        max-height: 190px;
+      }
+      .df-xp-player .df-btn-close-float {
+        display: none;
+        background: linear-gradient(180deg, #ff8b73 0%, #d93616 100%) !important;
+      }
+      .df-xp-player.df-xp-floating .df-btn-close-float {
+        display: inline-block !important;
+      }
       .df-xp-player:fullscreen {
         width: 100vw !important;
         height: 100vh !important;
@@ -71,6 +152,7 @@
         display: flex !important;
         flex-direction: column !important;
         background: #000;
+        position: static !important;
       }
       .df-xp-player:fullscreen .df-xp-screen {
         flex: 1 1 auto;
@@ -285,6 +367,12 @@
         font-size: 11px;
         color: #8cbcff;
         margin-top: 2px;
+        gap: 8px;
+      }
+      .df-xp-status {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .df-xp-controls {
         background: linear-gradient(180deg, #ffffff 0%, #eef2fa 50%, #d8e0ef 100%);
@@ -341,7 +429,7 @@
         align-items: center;
         gap: 5px;
         flex: 1;
-        min-width: 50px;
+        min-width: 45px;
       }
       input[type="range"].df-xp-vol {
         -webkit-appearance: none;
@@ -415,7 +503,7 @@
     (document.head || document.documentElement).appendChild(style);
   }
 
-  function closeVisMenu() {
+  function closeOpenMenu() {
     if (openMenuEl) {
       openMenuEl.remove();
       openMenuEl = null;
@@ -424,15 +512,32 @@
 
   document.addEventListener("pointerdown", (e) => {
     if (!openMenuEl) return;
-    if (openMenuEl.contains(e.target) || e.target.closest?.(".df-btn-settings")) return;
-    closeVisMenu();
+    if (openMenuEl.contains(e.target) || e.target.closest?.(".df-btn-settings") || e.target.closest?.(".df-btn-download")) return;
+    closeOpenMenu();
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeVisMenu();
+    if (e.key === "Escape") closeOpenMenu();
   });
 
-  window.addEventListener("scroll", () => closeVisMenu(), { passive: true });
+  window.addEventListener("scroll", () => closeOpenMenu(), { passive: true });
+
+  function positionMenuNearButton(menu, anchorBtn) {
+    const btnRect = anchorBtn.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+
+    let left = btnRect.right - menuRect.width;
+    if (left < 6) left = btnRect.left;
+    if (left + menuRect.width > window.innerWidth - 6) {
+      left = window.innerWidth - menuRect.width - 6;
+    }
+
+    let top = btnRect.top - menuRect.height - 4;
+    if (top < 6) top = btnRect.bottom + 4;
+
+    menu.style.left = Math.max(6, left) + "px";
+    menu.style.top = Math.max(6, top) + "px";
+  }
 
   function applyVisualizerSettings(visMode, visSens) {
     currentVisMode = visMode;
@@ -443,10 +548,10 @@
 
   function openVisMenu(anchorBtn) {
     if (openMenuEl && openMenuEl._anchor === anchorBtn) {
-      closeVisMenu();
+      closeOpenMenu();
       return;
     }
-    closeVisMenu();
+    closeOpenMenu();
 
     const menu = document.createElement("div");
     menu.className = "df-xp-menu";
@@ -493,7 +598,7 @@
         sItem.addEventListener("click", (e) => {
           e.stopPropagation();
           applyVisualizerSettings(visObj.id, sens.id);
-          closeVisMenu();
+          closeOpenMenu();
         });
         sub.appendChild(sItem);
       }
@@ -532,21 +637,103 @@
 
     document.body.appendChild(menu);
     openMenuEl = menu;
+    positionMenuNearButton(menu, anchorBtn);
+  }
 
-    const btnRect = anchorBtn.getBoundingClientRect();
-    const menuRect = menu.getBoundingClientRect();
+  function uint8ToBase64(bytes) {
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+  }
 
-    let left = btnRect.right - menuRect.width;
-    if (left < 6) left = btnRect.left;
-    if (left + menuRect.width > window.innerWidth - 6) {
-      left = window.innerWidth - menuRect.width - 6;
+  async function runDownloadFormat(fmt, extracted, statusLabel) {
+    const filename = `mediaza_${extracted.uid}.${fmt.ext}`;
+    if (fmt.id === "original") {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(extracted.videoBlob);
+      a.download = filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      statusLabel.textContent = `Скачано: ${filename}`;
+      return;
     }
 
-    let top = btnRect.top - menuRect.height - 4;
-    if (top < 6) top = btnRect.bottom + 4;
+    statusLabel.textContent = `Подготовка .${fmt.ext}...`;
+    const inputBytes = new Uint8Array(await extracted.videoBlob.arrayBuffer());
+    const inputExt = (extracted.mime || "").includes("mp4") ? "m4a"
+      : (extracted.mime || "").includes("mpeg") ? "mp3"
+      : (extracted.mime || "").includes("ogg") ? "ogg"
+      : (extracted.mime || "").includes("wav") ? "wav"
+      : "webm";
 
-    menu.style.left = Math.max(6, left) + "px";
-    menu.style.top = Math.max(6, top) + "px";
+    const inputName = `in_${extracted.uid}.${inputExt}`;
+    const outputName = `out_${extracted.uid}.${fmt.ext}`;
+    const jobId = extracted.uid + "_" + Date.now();
+
+    const port = chrome.runtime.connect({ name: "df-convert" });
+    port.onMessage.addListener((msg) => {
+      if (msg.type === "progress") {
+        if (msg.stage === "ffmpeg_download") {
+          statusLabel.textContent = `Загрузка FFmpeg: ${msg.pct}%`;
+        } else {
+          statusLabel.textContent = `Конвертация .${fmt.ext}: ${msg.pct}%`;
+        }
+      } else if (msg.type === "done") {
+        statusLabel.textContent = `Скачано: ${msg.filename}`;
+        port.disconnect();
+      } else if (msg.type === "error") {
+        statusLabel.textContent = `Ошибка: ${msg.error}`;
+        port.disconnect();
+      }
+    });
+
+    port.postMessage({
+      type: "START_CONVERT",
+      jobId,
+      inputName,
+      outputName,
+      inputBase64: uint8ToBase64(inputBytes),
+      args: fmt.args(inputName, outputName),
+      outMime: fmt.outMime,
+      filename
+    });
+  }
+
+  function openDownloadMenu(anchorBtn, extracted, isAudio, statusLabel) {
+    if (openMenuEl && openMenuEl._anchor === anchorBtn) {
+      closeOpenMenu();
+      return;
+    }
+    closeOpenMenu();
+
+    const menu = document.createElement("div");
+    menu.className = "df-xp-menu";
+    menu._anchor = anchorBtn;
+
+    const title = document.createElement("div");
+    title.className = "df-xp-menu-title";
+    title.textContent = "Скачать в формате";
+    menu.appendChild(title);
+
+    const formats = isAudio ? getAudioDownloadFormats(extracted.mime) : getVideoDownloadFormats();
+    for (const fmt of formats) {
+      const item = document.createElement("div");
+      item.className = "df-xp-menu-item";
+      item.innerHTML = `<span class="df-xp-menu-check">⬇</span><span>${fmt.label}</span>`;
+      item.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeOpenMenu();
+        runDownloadFormat(fmt, extracted, statusLabel);
+      });
+      menu.appendChild(item);
+    }
+
+    document.body.appendChild(menu);
+    openMenuEl = menu;
+    positionMenuNearButton(menu, anchorBtn);
   }
 
   function isDirectImagePage() {
@@ -647,13 +834,20 @@
 
   function buildEqBarsHtml() {
     const bars = [];
-    for (let i = 0; i < 16; i++) {
-      bars.push(`<div class="df-xp-eq-bar"></div>`);
-    }
+    for (let i = 0; i < 16; i++) bars.push(`<div class="df-xp-eq-bar"></div>`);
     return bars.join("");
   }
 
-  function buildXpPlayer(originalImg, extracted, gifUrl, directMode, gridLayout) {
+  function savePlaybackState(state) {
+    if (isUnloading) return;
+    chrome.storage.local.set({ [STORAGE_PLAYBACK_KEY]: { ...state, updatedAt: Date.now() } });
+  }
+
+  function clearPlaybackState() {
+    chrome.storage.local.remove(STORAGE_PLAYBACK_KEY);
+  }
+
+  function createPlayerController(originalImg, extracted, gifUrl, coverThumbOverride, directMode, gridLayout, restoreState) {
     injectStyles();
     const mediaUrl = URL.createObjectURL(extracted.videoBlob);
     const cleanCoverUrl = extracted.coverBlob ? URL.createObjectURL(extracted.coverBlob) : null;
@@ -669,19 +863,12 @@
       player.style.width = isAudio ? "360px" : "480px";
       player.style.maxWidth = "95vw";
       player.style.maxHeight = "95vh";
-    } else if (gridLayout) {
-      if (gridLayout.gridRow && gridLayout.gridRow !== "auto / auto" && gridLayout.gridRow !== "auto") {
-        player.style.gridRow = gridLayout.gridRow;
-      }
-      if (gridLayout.gridColumn && gridLayout.gridColumn !== "auto / auto" && gridLayout.gridColumn !== "auto") {
-        player.style.gridColumn = gridLayout.gridColumn;
-      }
-    } else if (!isAudio && !originalImg.closest(".post-photos-grid")) {
+    } else if (!isAudio && (!originalImg || !originalImg.closest(".post-photos-grid"))) {
       player.style.width = "460px";
     }
 
-    const hasLightbox = !directMode && Boolean(originalImg.getAttribute("onclick"));
-    const audioCoverThumb = cleanCoverUrl || resolveUrl(originalImg.getAttribute("data-still")) || gifUrl;
+    const hasLightbox = !directMode && originalImg && Boolean(originalImg.getAttribute("onclick"));
+    const audioCoverThumb = cleanCoverUrl || coverThumbOverride || (originalImg ? resolveUrl(originalImg.getAttribute("data-still")) : null) || gifUrl;
 
     const stageHtml = isAudio
       ? `
@@ -716,6 +903,7 @@
         <div class="df-xp-title-btns">
           ${hasLightbox ? `<button type="button" class="df-xp-winbtn df-btn-lightbox" title="Открыть в окне сайта">↗</button>` : ""}
           ${!isAudio ? `<button type="button" class="df-xp-winbtn df-btn-fs" title="На весь экран">⛶</button>` : ""}
+          <button type="button" class="df-xp-winbtn df-btn-close-float" title="Закрыть мини-плеер">✕</button>
         </div>
       </div>
       ${stageHtml}
@@ -739,6 +927,7 @@
         </div>
         <button type="button" class="df-xp-btn-round df-btn-loop" title="Повтор">↻</button>
         ${isAudio ? `<button type="button" class="df-xp-btn-round df-btn-settings" title="Визуализатор и чувствительность">⚙</button>` : ""}
+        <button type="button" class="df-xp-btn-round df-btn-download" title="Скачать в нужном формате">⬇</button>
       </div>
     `;
 
@@ -754,8 +943,10 @@
     const volRange = player.querySelector(".df-xp-vol");
     const loopBtn = player.querySelector(".df-btn-loop");
     const settingsBtn = player.querySelector(".df-btn-settings");
+    const downloadBtn = player.querySelector(".df-btn-download");
     const fsBtn = player.querySelector(".df-btn-fs");
     const lbBtn = player.querySelector(".df-btn-lightbox");
+    const closeFloatBtn = player.querySelector(".df-btn-close-float");
 
     const seekWrap = player.querySelector(".df-xp-seek-wrap");
     const seekFill = player.querySelector(".df-xp-seek-fill");
@@ -763,26 +954,194 @@
     const timeLabel = player.querySelector(".df-xp-time");
     const statusLabel = player.querySelector(".df-xp-status");
 
+    let slotEl = null;
+    let slotPlaceholder = null;
+    let slotObserver = null;
+    let isFloating = false;
+    let userDismissed = false;
+    let slotVisible = true;
+    let lastPersistAt = 0;
+
     let isDraggingSeek = false;
     let indexingState = "init";
-    let pendingPlay = Boolean(directMode);
+    let pendingPlay = Boolean(restoreState?.playing);
+    let pendingSeekTime = restoreState?.currentTime > 0 ? restoreState.currentTime : 0;
     let indexSafetyTimer = null;
+
+    if (restoreState) {
+      media.volume = typeof restoreState.volume === "number" ? restoreState.volume : 1;
+      volRange.value = String(media.volume);
+      media.muted = Boolean(restoreState.muted);
+      muteBtn.innerHTML = (media.muted || media.volume === 0) ? ICON_VOL_OFF : ICON_VOL_ON;
+      media.loop = Boolean(restoreState.loop);
+      loopBtn.classList.toggle("active", media.loop);
+    }
+
+    const ctrl = {
+      uid: extracted.uid,
+      player,
+      media,
+      get isFloating() { return isFloating; },
+      attachSlot,
+      floatToCorner,
+      dockToSlot,
+      destroyOrDismiss
+    };
+
+    if (!directMode) {
+      playerControllersByUid.set(extracted.uid, ctrl);
+    }
 
     function hidePoster() {
       if (videoPoster) videoPoster.classList.add("hidden");
+    }
+
+    function persistStateNow(forcePlayingFlag) {
+      if (directMode) return;
+      const isPlaying = typeof forcePlayingFlag === "boolean" ? forcePlayingFlag : (!media.paused && !media.ended);
+      if (isPlaying || isFloating) {
+        savePlaybackState({
+          uid: extracted.uid,
+          gifUrl,
+          coverThumb: audioCoverThumb,
+          currentTime: isFinite(media.currentTime) ? media.currentTime : 0,
+          playing: isPlaying,
+          floating: isFloating,
+          volume: media.volume,
+          muted: media.muted,
+          loop: media.loop
+        });
+      } else if (activeFloatingCtrl !== ctrl) {
+        // Не перезаписываем чужой активный плеер
+      } else {
+        clearPlaybackState();
+      }
+    }
+
+    function updateSlotPlaceholderSize() {
+      if (!slotPlaceholder) return;
+      const rect = player.getBoundingClientRect();
+      slotPlaceholder.style.minHeight = Math.max(120, Math.round(rect.height || 180)) + "px";
+    }
+
+    function floatToCorner() {
+      if (directMode || isFloating) return;
+      if (activeFloatingCtrl && activeFloatingCtrl !== ctrl) {
+        activeFloatingCtrl.destroyOrDismiss(true);
+      }
+      if (slotEl && slotEl.isConnected) {
+        updateSlotPlaceholderSize();
+        slotPlaceholder.style.display = "flex";
+      }
+      isFloating = true;
+      activeFloatingCtrl = ctrl;
+      player.classList.add("df-xp-floating");
+      document.body.appendChild(player);
+      persistStateNow();
+    }
+
+    function dockToSlot() {
+      if (!isFloating || !slotEl || !slotEl.isConnected) return;
+      isFloating = false;
+      if (activeFloatingCtrl === ctrl) activeFloatingCtrl = null;
+      player.classList.remove("df-xp-floating");
+      if (slotPlaceholder) slotPlaceholder.style.display = "none";
+      slotEl.appendChild(player);
+      persistStateNow();
+    }
+
+    function destroyOrDismiss(keepActiveCheck) {
+      media.pause();
+      isFloating = false;
+      userDismissed = true;
+      if (activeFloatingCtrl === ctrl) activeFloatingCtrl = null;
+      if (!keepActiveCheck) clearPlaybackState();
+      player.classList.remove("df-xp-floating");
+
+      if (slotEl && slotEl.isConnected) {
+        if (slotPlaceholder) slotPlaceholder.style.display = "none";
+        slotEl.appendChild(player);
+      } else {
+        player.remove();
+        if (playerControllersByUid.get(extracted.uid) === ctrl) {
+          playerControllersByUid.delete(extracted.uid);
+        }
+      }
+    }
+
+    function attachSlot(newSlotEl, newGridLayout) {
+      if (slotObserver) {
+        slotObserver.disconnect();
+        slotObserver = null;
+      }
+      slotEl = newSlotEl;
+      if (newGridLayout) {
+        if (newGridLayout.gridRow && newGridLayout.gridRow !== "auto / auto" && newGridLayout.gridRow !== "auto") {
+          slotEl.style.gridRow = newGridLayout.gridRow;
+        }
+        if (newGridLayout.gridColumn && newGridLayout.gridColumn !== "auto / auto" && newGridLayout.gridColumn !== "auto") {
+          slotEl.style.gridColumn = newGridLayout.gridColumn;
+        }
+      }
+
+      slotPlaceholder = slotEl.querySelector(".df-xp-slot-placeholder");
+      if (!slotPlaceholder) {
+        slotPlaceholder = document.createElement("div");
+        slotPlaceholder.className = "df-xp-slot-placeholder";
+        slotPlaceholder.textContent = `Медиаза (${extracted.uid}) воспроизводится в мини-окне`;
+        slotPlaceholder.style.display = "none";
+        slotEl.appendChild(slotPlaceholder);
+      }
+
+      if (!isFloating) {
+        slotEl.appendChild(player);
+      } else {
+        updateSlotPlaceholderSize();
+        slotPlaceholder.style.display = "flex";
+      }
+
+      slotObserver = new IntersectionObserver((entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        slotVisible = entry.isIntersecting;
+        if (slotVisible) {
+          if (isFloating) dockToSlot();
+        } else {
+          if (!isFloating && !userDismissed && !media.paused && !media.ended) {
+            floatToCorner();
+          }
+        }
+      }, { threshold: 0.12 });
+      slotObserver.observe(slotEl);
+    }
+
+    if (gridLayout) {
+      // Первичный слот привяжется в processImage через attachSlot
     }
 
     function finishIndexing() {
       if (indexingState === "ready") return;
       indexingState = "ready";
       clearTimeout(indexSafetyTimer);
-      timeLabel.textContent = `0:00 / ${formatTime(media.duration)}`;
-      updateProgressUI(0);
+      if (pendingSeekTime > 0 && isFinite(media.duration) && pendingSeekTime < media.duration) {
+        media.currentTime = pendingSeekTime;
+        hidePoster();
+      }
+      pendingSeekTime = 0;
+
+      const pct = (isFinite(media.duration) && media.duration > 0) ? (media.currentTime / media.duration) * 100 : 0;
+      timeLabel.textContent = `${formatTime(media.currentTime)} / ${formatTime(media.duration)}`;
+      updateProgressUI(pct);
       statusLabel.textContent = "Готов к воспроизведению";
+
       if (pendingPlay) {
         pendingPlay = false;
         hidePoster();
-        ensureAnalyser().then(() => media.play().catch(() => {}));
+        ensureAnalyser().then(() => {
+          media.play().catch(() => {
+            statusLabel.textContent = "Кликните Play для продолжения";
+          });
+        });
       }
     }
 
@@ -814,9 +1173,12 @@
         media.currentTime = 0;
       } else if (indexingState === "rewinding") {
         finishIndexing();
+      } else if (indexingState === "ready") {
+        persistStateNow();
       }
     });
 
+    // --- Анализатор и визуализаторы для аудио ---
     let audioCtx = null;
     let analyser = null;
     let freqData = null;
@@ -848,9 +1210,7 @@
       }
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        if (ctx.state === "suspended") {
-          await ctx.resume().catch(() => {});
-        }
+        if (ctx.state === "suspended") await ctx.resume().catch(() => {});
         if (ctx.state === "running") {
           const src = ctx.createMediaElementSource(media);
           const an = ctx.createAnalyser();
@@ -1076,10 +1436,22 @@
     async function syncPlayState() {
       if (indexingState !== "ready") return;
       const playing = !media.paused && !media.ended;
-      if (playing) hidePoster();
+      if (playing) {
+        hidePoster();
+        userDismissed = false;
+        // Останавливаем другой плавающий плеер, если включили новый
+        if (activeFloatingCtrl && activeFloatingCtrl !== ctrl) {
+          activeFloatingCtrl.destroyOrDismiss(true);
+        }
+        if (!directMode && (!slotEl || !slotEl.isConnected || !slotVisible) && !isFloating) {
+          floatToCorner();
+        }
+      }
       playBtn.innerHTML = playing ? ICON_PAUSE : ICON_PLAY;
       if (centerPlay) centerPlay.classList.toggle("hidden", playing);
       statusLabel.textContent = playing ? "Воспроизведение" : (media.ended ? "Завершено" : "Пауза");
+
+      persistStateNow(playing);
 
       if (isAudio) {
         if (playing) {
@@ -1103,6 +1475,7 @@
         return;
       }
       if (media.paused || media.ended) {
+        userDismissed = false;
         hidePoster();
         await ensureAnalyser();
         media.play().catch(() => {});
@@ -1147,6 +1520,7 @@
       e.stopPropagation();
       media.muted = !media.muted;
       muteBtn.innerHTML = (media.muted || media.volume === 0) ? ICON_VOL_OFF : ICON_VOL_ON;
+      persistStateNow();
     });
 
     volRange.addEventListener("input", (e) => {
@@ -1154,12 +1528,14 @@
       media.volume = Number(volRange.value);
       media.muted = media.volume === 0;
       muteBtn.innerHTML = media.muted ? ICON_VOL_OFF : ICON_VOL_ON;
+      persistStateNow();
     });
 
     loopBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       media.loop = !media.loop;
       loopBtn.classList.toggle("active", media.loop);
+      persistStateNow();
     });
 
     if (settingsBtn) {
@@ -1168,6 +1544,11 @@
         openVisMenu(settingsBtn);
       });
     }
+
+    downloadBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openDownloadMenu(downloadBtn, extracted, isAudio, statusLabel);
+    });
 
     if (fsBtn) {
       fsBtn.addEventListener("click", (e) => {
@@ -1181,9 +1562,14 @@
       lbBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         media.pause();
-        originalImg.click();
+        originalImg?.click();
       });
     }
+
+    closeFloatBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      destroyOrDismiss(false);
+    });
 
     seekWrap.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
@@ -1200,6 +1586,7 @@
       if (!isDraggingSeek) return;
       isDraggingSeek = false;
       seekWrap.releasePointerCapture(e.pointerId);
+      persistStateNow();
     });
 
     media.addEventListener("timeupdate", () => {
@@ -1207,12 +1594,22 @@
       const pct = (isFinite(media.duration) && media.duration > 0) ? (media.currentTime / media.duration) * 100 : 0;
       updateProgressUI(pct);
       timeLabel.textContent = `${formatTime(media.currentTime)} / ${formatTime(media.duration)}`;
+
+      const now = Date.now();
+      if (!media.paused && now - lastPersistAt > 450) {
+        lastPersistAt = now;
+        persistStateNow(true);
+      }
     });
     media.addEventListener("play", syncPlayState);
     media.addEventListener("pause", syncPlayState);
     media.addEventListener("ended", syncPlayState);
 
-    return player;
+    if (restoreState?.floating && !directMode) {
+      floatToCorner();
+    }
+
+    return ctrl;
   }
 
   async function processImage(img) {
@@ -1238,8 +1635,6 @@
 
     if (!shouldRunOnThisPage() || img.dataset.dfReplaced === "1") return;
 
-    console.log(`[Медиаза] Вставляем XP-плеер (${extracted.mime}) ID=${extracted.uid} для ${gifUrl}`);
-
     const grid = img.closest(".post-photos-grid");
     let gridLayout = null;
     if (grid) {
@@ -1249,17 +1644,66 @@
     }
 
     img.dataset.dfReplaced = "1";
-    const xpPlayer = buildXpPlayer(img, extracted, gifUrl, isDirectImagePage(), gridLayout);
-
     img.style.setProperty("display", "none", "important");
-    img.insertAdjacentElement("afterend", xpPlayer);
+
+    if (isDirectImagePage()) {
+      const ctrl = createPlayerController(img, extracted, gifUrl, null, true, null, { playing: true });
+      img.insertAdjacentElement("afterend", ctrl.player);
+      return;
+    }
+
+    const slot = document.createElement("div");
+    slot.className = "df-xp-slot";
+    img.insertAdjacentElement("afterend", slot);
+
+    // Если такой ID уже играет в плавающем окне (после SPA-перехода или перезагрузки) — приклеиваем его к этому посту!
+    const existingCtrl = playerControllersByUid.get(extracted.uid);
+    if (existingCtrl && existingCtrl.isFloating) {
+      console.log(`[Медиаза] Прикрепляем существующий плеер ID=${extracted.uid} обратно к посту.`);
+      existingCtrl.attachSlot(slot, gridLayout);
+      return;
+    }
+
+    console.log(`[Медиаза] Вставляем XP-плеер (${extracted.mime}) ID=${extracted.uid} для ${gifUrl}`);
+    const ctrl = createPlayerController(img, extracted, gifUrl, null, false, gridLayout, null);
+    ctrl.attachSlot(slot, gridLayout);
+  }
+
+  async function restoreCrossPagePlayer(saved) {
+    if (!saved || !saved.gifUrl || !saved.uid) return;
+    if (Date.now() - (saved.updatedAt || 0) > 2 * 60 * 60 * 1000) {
+      clearPlaybackState();
+      return;
+    }
+    if (!saved.playing && !saved.floating) return;
+
+    // Если уже нашли эту гифку на странице, просто подхватим или дадим чуть времени на скан
+    await new Promise((r) => setTimeout(r, 150));
+    if (playerControllersByUid.has(saved.uid)) {
+      const existing = playerControllersByUid.get(saved.uid);
+      if (saved.currentTime > 0 && isFinite(existing.media.duration)) {
+        existing.media.currentTime = saved.currentTime;
+      }
+      if (saved.playing) existing.media.play().catch(() => {});
+      return;
+    }
+
+    const extracted = await inspectUrl(saved.gifUrl);
+    if (!extracted || !extracted.found || extracted.corrupted) return;
+    if (playerControllersByUid.has(extracted.uid)) return;
+
+    console.log(`[Медиаза] Восстанавливаем межстраничный плеер ID=${extracted.uid} в левом нижнем углу.`);
+    createPlayerController(null, extracted, saved.gifUrl, saved.coverThumb, false, null, {
+      ...saved,
+      floating: true
+    });
   }
 
   function setPlayersVisible(visible) {
     if (isDirectImagePage()) return;
-    closeVisMenu();
+    closeOpenMenu();
     document.querySelectorAll(".post-photos-grid").forEach((grid) => {
-      if (visible && grid.querySelector(".df-xp-player")) {
+      if (visible && grid.querySelector(".df-xp-slot")) {
         grid.classList.add("df-has-players");
       } else {
         grid.classList.remove("df-has-players");
@@ -1272,7 +1716,11 @@
         img.style.removeProperty("display");
       }
     });
+    document.querySelectorAll(".df-xp-slot").forEach((slot) => {
+      slot.style.display = visible ? "block" : "none";
+    });
     document.querySelectorAll(".df-xp-player").forEach((player) => {
+      if (player.classList.contains("df-xp-floating")) return;
       const media = player.querySelector(".df-media-player");
       if (visible) {
         player.style.removeProperty("display");
@@ -1288,13 +1736,35 @@
     document.querySelectorAll("img").forEach(processImage);
   }
 
+  window.addEventListener("pagehide", () => {
+    if (activeFloatingCtrl && !activeFloatingCtrl.media.paused) {
+      // Фиксируем актуальную секунду перед уходом со страницы
+      const m = activeFloatingCtrl.media;
+      chrome.storage.local.get(STORAGE_PLAYBACK_KEY, (d) => {
+        if (d[STORAGE_PLAYBACK_KEY]) {
+          chrome.storage.local.set({
+            [STORAGE_PLAYBACK_KEY]: {
+              ...d[STORAGE_PLAYBACK_KEY],
+              currentTime: isFinite(m.currentTime) ? m.currentTime : 0,
+              updatedAt: Date.now()
+            }
+          });
+        }
+      });
+    }
+    isUnloading = true;
+  });
+
   chrome.storage.local.get(
-    { enabled: true, visMode: "bars", visSens: "standard" },
+    { enabled: true, visMode: "bars", visSens: "standard", [STORAGE_PLAYBACK_KEY]: null },
     (data) => {
       isEnabled = data.enabled;
       currentVisMode = data.visMode || "bars";
       currentVisSens = data.visSens || "standard";
       if (shouldRunOnThisPage()) scanAll();
+      if (!isDirectImagePage() && isEnabled && data[STORAGE_PLAYBACK_KEY]) {
+        restoreCrossPagePlayer(data[STORAGE_PLAYBACK_KEY]);
+      }
     }
   );
 

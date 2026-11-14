@@ -24,6 +24,28 @@ const saveDbBtn = document.getElementById("saveDbBtn");
 const saveFileBtn = document.getElementById("saveFileBtn");
 const savedList = document.getElementById("savedList");
 
+const ffmpegStatusBanner = document.getElementById("ffmpegStatusBanner");
+
+function updateFfmpegBanner(p) {
+  if (!ffmpegStatusBanner) return;
+  if (p.phase === "ready") {
+    ffmpegStatusBanner.textContent = "FFmpeg (для скачивания .mp4/.3gp/.avi/.mp3): готов и сохранён в IndexedDB.";
+    ffmpegStatusBanner.style.color = "#1b6b1b";
+  } else {
+    const mb = (p.loaded / (1024 * 1024)).toFixed(1);
+    const totalMb = (p.total / (1024 * 1024)).toFixed(1);
+    ffmpegStatusBanner.textContent = `FFmpeg: фоновая загрузка в IndexedDB — ${mb} / ~${totalMb} МБ (${p.pct}%)...`;
+    ffmpegStatusBanner.style.color = "#003c74";
+  }
+}
+
+const ffmpegEnsurePromise = DFFmpegLoader.ensureDownloaded(updateFfmpegBanner).catch((err) => {
+  if (ffmpegStatusBanner) {
+    ffmpegStatusBanner.textContent = "FFmpeg: ошибка загрузки (" + err.message + "). При конвертации попробуем снова.";
+    ffmpegStatusBanner.style.color = "#b00";
+  }
+});
+
 let selectedFile = null;
 let selectedType = null;
 let customCoverFile = null;
@@ -474,6 +496,11 @@ convertBtn.addEventListener("click", async () => {
   saveDbBtn.disabled = false;
 
   try {
+    if (!(await DFFmpegLoader.isReady())) {
+      statusText.textContent = "Ожидание докачки FFmpeg в IndexedDB...";
+      await DFFmpegLoader.ensureDownloaded(updateFfmpegBanner);
+    }
+
     let customImg = null;
     if (coverMode.value === "custom" && customCoverFile) {
       statusText.textContent = "Загрузка своей обложки...";

@@ -1,7 +1,8 @@
 (function (root) {
   const DB_NAME = "StrekozaVideoImagesDB";
   const STORE_NAME = "images";
-  const DB_VERSION = 1;
+  const FFMPEG_STORE = "ffmpeg_cache";
+  const DB_VERSION = 2;
 
   function openDB() {
     return new Promise((resolve, reject) => {
@@ -10,6 +11,9 @@
         const db = req.result;
         if (!db.objectStoreNames.contains(STORE_NAME)) {
           db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true });
+        }
+        if (!db.objectStoreNames.contains(FFMPEG_STORE)) {
+          db.createObjectStore(FFMPEG_STORE);
         }
       };
       req.onsuccess = () => resolve(req.result);
@@ -49,5 +53,31 @@
     });
   }
 
-  root.DFDatabase = { saveImage, getAllImages, deleteImage };
+  async function getFFmpegCache() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(FFMPEG_STORE, "readonly");
+      const req = tx.objectStore(FFMPEG_STORE).get("core_bundle");
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function saveFFmpegCache(bundle) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(FFMPEG_STORE, "readwrite");
+      tx.objectStore(FFMPEG_STORE).put(bundle, "core_bundle");
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  root.DFDatabase = {
+    saveImage,
+    getAllImages,
+    deleteImage,
+    getFFmpegCache,
+    saveFFmpegCache
+  };
 })(window);

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Медиаза",
-  "version": "2.1.0",
-  "description": "Упаковка QVGA-видео со звуком в многокадровый GIF",
+  "version": "2.2.0",
+  "description": "Видео и аудио внутри GIF на Стрекозе: XP-плеер, визуализаторы, плавающий мини-плеер и конвертация форматов.",
   "icons": {
     "16": "favicon.png",
     "32": "favicon.png",
@@ -11,11 +11,21 @@
   },
   "permissions": [
     "storage",
-    "downloads"
+    "downloads",
+    "offscreen"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
+  "sandbox": {
+    "pages": [
+      "ffmpeg_sandbox.html"
+    ]
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';",
+    "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; child-src 'self' blob:;"
+  },
   "background": {
     "service_worker": "background.js"
   },

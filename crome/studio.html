@@ -101,6 +101,9 @@
       <span>Медиаза — Конвертер видео и звука в GIF</span>
     </div>
     <div class="content">
+    <div id="ffmpegStatusBanner" style="background:#f4f7fc; border:1px solid #7f9db9; border-radius:3px; padding:7px 10px; margin-bottom:12px; font-size:12px;">
+        FFmpeg: проверка кэша...
+      </div>
       <div class="row">
         <label>1. Видео или аудиофайл:</label>
         <input type="file" id="mediaInput" accept="video/*,audio/*">
@@ -192,9 +195,10 @@
     <div class="content" id="savedList">Загрузка...</div>
   </div>
 
+  <script src="db.js"></script>
+  <script src="ffmpeg_loader.js"></script>
   <script src="gif.js"></script>
   <script src="codec.js"></script>
-  <script src="db.js"></script>
   <script src="studio.js"></script>
 </body>
 </html>
