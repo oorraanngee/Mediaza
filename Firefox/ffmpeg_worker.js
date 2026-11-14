@@ -20,14 +20,15 @@ self.onmessage = async function (e) {
     core.setLogger(({ message }) => {
       if (message) {
         lastLogs.push(message);
-        if (lastLogs.length > 20) lastLogs.shift();
+        if (lastLogs.length > 30) lastLogs.shift();
+        self.postMessage({ type: "log", message });
       }
     });
 
     core.FS.writeFile(inputName, new Uint8Array(inputBytes));
     const exitCode = core.exec(...args);
     if (exitCode !== 0) {
-      throw new Error("FFmpeg завершился с кодом " + exitCode + ": " + lastLogs.slice(-4).join(" | "));
+      throw new Error("FFmpeg завершился с кодом " + exitCode + ": " + lastLogs.slice(-5).join(" | "));
     }
 
     const outBytes = core.FS.readFile(outputName);
