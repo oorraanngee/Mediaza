@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Медиаза",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Видео и аудио внутри GIF на Стрекозе: XP-плеер, визуализаторы, плавающий мини-плеер и конвертация форматов.",
   "icons": {
     "16": "favicon.png",
@@ -47,7 +47,7 @@
         "https://dragonfly-flash.com/*",
         "https://*.dragonfly-flash.com/*"
       ],
-      "js": ["gif.js", "codec.js", "content.js"],
+      "js": ["gif.js", "codec.js", "xp_player.js", "content.js"],
       "run_at": "document_idle"
     }
   ]

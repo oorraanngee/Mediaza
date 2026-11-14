@@ -27,14 +27,15 @@ self.onmessage = async function (e) {
     core.setLogger(({ message }) => {
       if (message) {
         lastLogs.push(message);
-        if (lastLogs.length > 20) lastLogs.shift();
+        if (lastLogs.length > 30) lastLogs.shift();
+        self.postMessage({ type: "log", message });
       }
     });
 
     core.FS.writeFile(inputName, new Uint8Array(inputBytes));
     const exitCode = core.exec(...args);
     if (exitCode !== 0) {
-      throw new Error("FFmpeg завершился с кодом " + exitCode + ": " + lastLogs.slice(-4).join(" | "));
+      throw new Error("FFmpeg завершился с кодом " + exitCode + ": " + lastLogs.slice(-5).join(" | "));
     }
 
     const outBytes = core.FS.readFile(outputName);
@@ -54,9 +55,24 @@ self.onmessage = async function (e) {
 };
 `;
 
+const activeWorkers = new Map();
+
 window.addEventListener("message", (event) => {
   const data = event.data;
-  if (!data || data.cmd !== "RUN_FFMPEG") return;
+  if (!data) return;
+
+  if (data.cmd === "CANCEL_FFMPEG" && data.jobId) {
+    const entry = activeWorkers.get(data.jobId);
+    if (entry) {
+      entry.worker.terminate();
+      URL.revokeObjectURL(entry.workerUrl);
+      activeWorkers.delete(data.jobId);
+      entry.replyTarget.postMessage({ jobId: data.jobId, type: "error", error: "Отменено пользователем" }, "*");
+    }
+    return;
+  }
+
+  if (data.cmd !== "RUN_FFMPEG") return;
 
   const replyTarget = event.source;
   const { jobId, coreJsBuf, coreWasmBuf, inputName, outputName, inputBuffer, args } = data;
@@ -64,26 +80,32 @@ window.addEventListener("message", (event) => {
   const workerBlob = new Blob([WORKER_CODE], { type: "text/javascript" });
   const workerUrl = URL.createObjectURL(workerBlob);
   const worker = new Worker(workerUrl);
+  activeWorkers.set(jobId, { worker, workerUrl, replyTarget });
+
+  function cleanup() {
+    activeWorkers.delete(jobId);
+    worker.terminate();
+    URL.revokeObjectURL(workerUrl);
+  }
 
   worker.onmessage = (we) => {
     const msg = we.data;
     if (msg.type === "progress") {
       replyTarget.postMessage({ jobId, type: "progress", pct: msg.pct }, "*");
+    } else if (msg.type === "log") {
+      replyTarget.postMessage({ jobId, type: "log", message: msg.message }, "*");
     } else if (msg.type === "done") {
       replyTarget.postMessage({ jobId, type: "done", outputBuffer: msg.outputBuffer }, "*", [msg.outputBuffer]);
-      worker.terminate();
-      URL.revokeObjectURL(workerUrl);
+      cleanup();
     } else if (msg.type === "error") {
       replyTarget.postMessage({ jobId, type: "error", error: msg.error }, "*");
-      worker.terminate();
-      URL.revokeObjectURL(workerUrl);
+      cleanup();
     }
   };
 
   worker.onerror = (err) => {
     replyTarget.postMessage({ jobId, type: "error", error: err.message || "Worker error" }, "*");
-    worker.terminate();
-    URL.revokeObjectURL(workerUrl);
+    cleanup();
   };
 
   worker.postMessage(

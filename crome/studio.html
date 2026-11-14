@@ -9,7 +9,7 @@
       font-family: Tahoma, Segoe UI, sans-serif;
       background: #ece9d8;
       color: #111;
-      max-width: 860px;
+      max-width: 880px;
       margin: 20px auto;
       padding: 0 16px;
     }
@@ -54,9 +54,13 @@
     button:disabled { opacity: 0.5; cursor: not-allowed; }
     .preview-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 340px 1fr;
       gap: 16px;
       margin-top: 12px;
+      align-items: start;
+    }
+    @media (max-width: 780px) {
+      .preview-grid { grid-template-columns: 1fr; }
     }
     .box {
       border: 1px solid #ccc;
@@ -65,15 +69,39 @@
       border-radius: 4px;
       text-align: center;
     }
-    .box img, .box video {
+    .box > img {
       max-width: 100%;
       max-height: 280px;
       background: #000;
       border: 1px solid #999;
     }
-    .box audio {
-      width: 100%;
-      margin-top: 20px;
+    .notice-line {
+      display: none;
+      background: #eef4fc;
+      border: 1px solid #9db7db;
+      color: #1f3c6b;
+      border-radius: 3px;
+      padding: 6px 10px;
+      margin-top: 10px;
+      font-size: 12px;
+    }
+    .alert-box {
+      display: none;
+      border-radius: 4px;
+      padding: 10px 12px;
+      margin-top: 10px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .alert-box.warn {
+      background: #fff8dc;
+      border: 1px solid #d4a700;
+      color: #5c4300;
+    }
+    .alert-box.error {
+      background: #fde8e8;
+      border: 1px solid #c9302c;
+      color: #7a1010;
     }
     .saved-item {
       display: flex;
@@ -101,12 +129,19 @@
       <span>Медиаза — Конвертер видео и звука в GIF</span>
     </div>
     <div class="content">
-    <div id="ffmpegStatusBanner" style="background:#f4f7fc; border:1px solid #7f9db9; border-radius:3px; padding:7px 10px; margin-bottom:12px; font-size:12px;">
+      <div id="ffmpegStatusBanner" style="background:#f4f7fc; border:1px solid #7f9db9; border-radius:3px; padding:7px 10px; margin-bottom:12px; font-size:12px;">
         FFmpeg: проверка кэша...
       </div>
+
       <div class="row">
         <label>1. Видео или аудиофайл:</label>
         <input type="file" id="mediaInput" accept="video/*,audio/*">
+
+        <label>Кодировщик:</label>
+        <select id="encoderSelect">
+          <option value="ffmpeg" selected>FFmpeg WASM (стабильно для длинных видео)</option>
+          <option value="mediarecorder">Браузер (MediaRecorder 1x)</option>
+        </select>
       </div>
 
       <div class="row">
@@ -149,14 +184,14 @@
         </select>
       </div>
 
-      <div class="row" id="audioSettingsRow" style="display:none;">
-        <label>Сжатие звука:</label>
+      <div class="row" id="audioSettingsRow">
+        <label>Качество звука:</label>
         <select id="audioBitrateSelect">
-          <option value="copy">Без пережатия (мгновенно, как есть)</option>
-          <option value="24000">Opus 24 кбит/с (минимум веса, 1x)</option>
-          <option value="32000" selected>Opus 32 кбит/с (норма, 1x)</option>
-          <option value="48000">Opus 48 кбит/с (чётче, 1x)</option>
-          <option value="64000">Opus 64 кбит/с (высокое, 1x)</option>
+          <option value="copy" id="audioCopyOpt" hidden disabled>Без пережатия (мгновенно, только для аудио)</option>
+          <option value="32000">Opus/AAC 32 кбит/с (моно, для речи)</option>
+          <option value="48000">Opus/AAC 48 кбит/с (стерео, эконом)</option>
+          <option value="64000" selected>Opus/AAC 64 кбит/с (стерео, оптимум вес/качество)</option>
+          <option value="96000">Opus/AAC 96 кбит/с (стерео, максимум для музыки)</option>
         </select>
       </div>
 
@@ -165,11 +200,32 @@
         <button id="cancelBtn" class="danger" style="display:none;">Остановить</button>
         <span id="statusText" style="font-size: 13px;">Выберите видео или аудиофайл.</span>
       </div>
+
+      <!-- Уровень 1: Оповещения (незначительные) -->
+      <div id="noticeLine" class="notice-line"></div>
+
+      <!-- Уровень 2: Отдельная плашка серьёзных некритических предупреждений -->
+      <div id="warnAlertBox" class="alert-box warn">
+        <div style="font-weight:bold; margin-bottom:4px;">Предупреждение</div>
+        <div id="warnAlertText"></div>
+        <div style="margin-top:8px;">
+          <button id="downloadWarnLogBtn" type="button">Скачать лог (.txt)</button>
+        </div>
+      </div>
+
+      <!-- Уровень 3: Отдельная плашка критических ошибок -->
+      <div id="errorAlertBox" class="alert-box error">
+        <div style="font-weight:bold; margin-bottom:4px;">Критическая ошибка</div>
+        <div id="errorAlertText"></div>
+        <div style="margin-top:8px;">
+          <button id="downloadErrorLogBtn" type="button">Скачать лог (.txt)</button>
+        </div>
+      </div>
     </div>
   </div>
 
   <div class="window" id="previewWindow" style="display:none;">
-    <div class="titlebar">Предпросмотр результата и тест GIF-декодера</div>
+    <div class="titlebar">Предпросмотр результата и тест XP-плеера</div>
     <div class="content">
       <div id="statsText" style="font-size: 13px; margin-bottom: 10px;"></div>
       <div class="row">
@@ -182,9 +238,7 @@
           <img id="previewImg" alt="preview">
         </div>
         <div class="box">
-          <div style="font-size:12px; margin-bottom:6px;"><b>Распаковано из GIF</b> (проверка CRC32)</div>
-          <video id="previewVideo" controls playsinline style="display:none;"></video>
-          <audio id="previewAudio" controls style="display:none;"></audio>
+          <div id="previewPlayerMount"></div>
         </div>
       </div>
     </div>
@@ -195,10 +249,13 @@
     <div class="content" id="savedList">Загрузка...</div>
   </div>
 
+  <iframe id="sandboxFrame" src="ffmpeg_sandbox.html" style="display:none;"></iframe>
+
   <script src="db.js"></script>
   <script src="ffmpeg_loader.js"></script>
   <script src="gif.js"></script>
   <script src="codec.js"></script>
+  <script src="xp_player.js"></script>
   <script src="studio.js"></script>
 </body>
 </html>
